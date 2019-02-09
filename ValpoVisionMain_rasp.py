@@ -10,12 +10,23 @@ from time import sleep
 from numpy import array
 from numpy import int0
 from numpy import argsort
+from time import perf_counter
 
 def crop(image,x,y,width,height):
     return image[y:y+height,x:x+width]
 
-video_camera = True
-video_file = "tests/video_red_blue.mp4"
+#handle exit()
+from signal import signal
+from signal import SIGINT
+def sigint_handler(signum, frame):
+    # When everything done, release the capture
+    vs.stop()
+    cv2.destroyAllWindows()
+
+    print("\nThe processing rate is %s"%((processing_rate/(perf_counter() - time_start))))
+    raise SystemExit(0)
+
+signal(SIGINT, sigint_handler)#run commands on control c
 
 
 #the boundaries for the HSV values
@@ -28,15 +39,17 @@ vs = WebcamVideoStream(src=0,res=res).start()
 box = (50,400,500,50)
 x_box,y_box,width_box,height_box = box
 
+time_start = perf_counter()#keep time
+processing_rate = 0 #keep time
 # keep looping
 while True:
     # grab the current frame and initialize the status text
     grabbed,frame = vs.read()
-    frame = frame if video_camera else frame[1]
+    frame = frame
     image = frame.copy()
 
     image_croped = crop(frame,x_box,y_box,width_box,height_box)
-    image_croped =cv2.cvtColor(image_croped, cv2.COLOR_BGR2HSV) #Use for HSV
+    image_croped = cv2.cvtColor(image_croped, cv2.COLOR_BGR2HSV) #Use for HSV
 
     mask = cv2.inRange(image_croped, lower, upper)
     
@@ -46,16 +59,15 @@ while True:
     edged = cv2.erode(mask, None, iterations=1)
     edged = cv2.dilate(mask, None, iterations=1)
     
-    (_,contours,_) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE)
-
+    (contours,_) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    top_x_center = 0
     for cnt in contours:
         peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.05 * peri, True)
         area = cv2.contourArea(cnt)
         if len(approx) >= 4 and len(approx) <= 6 and area>area_min:
             box = int0(cv2.boxPoints(cv2.minAreaRect(cnt) ))
-            print(box)
             shifted_box = []
             for a in box:
                 shifted_box.append([a[0]+x_box,a[1]+y_box])
@@ -77,19 +89,13 @@ while True:
             cv2.line(image, (int(top_x_center), y_box), (int(bottom_x_center), y_box+height_box), (0,255,0), 2)
             cv2.line(image, (int(top_x_left), y_box), (int(bottom_x_left), y_box+height_box), (255,0,0), 2)
     cv2.rectangle(image,(x_box,y_box),(x_box+width_box,y_box+height_box),(0,255,0),2)
+    
+    print(top_x_center)
+    processing_rate+=1
 
-    
-    cv2.imshow("Frame",image)
-    cv2.imshow("image_croped",image_croped)
-    cv2.imshow("mask",mask)
-    
-    key = cv2.waitKey(1) & 0xFF
-    
-    # if the 'q' key is pressed, stop the loop
-    if key == ord("q"):
-        break
-
-# cleanup the camera and close any open windows
-#camera.release()
-cv2.destroyAllWindows()
 vs.stop()
+cv2.destroyAllWindows()
+
+
+processing_rate = (processing_rate/(perf_counter() - time_start))
+print("\nThe processing rate is %s"%(processing_rate))
