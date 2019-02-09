@@ -31,15 +31,15 @@ void receiveEvent(int howMany) {
 
 
 
-int i2c_handler_start(){
+/*int i2c_handler_start(){
 
-}
+}*/
 
 void setup() {
   Wire.begin(0x8);                // join i2c bus with address #8
   Wire.onReceive(receiveEvent); // register event
   Serial.begin(9600);
-  i2c_handler_start();
+  //i2c_handler_start();
 }
 
 void loop(){ 
