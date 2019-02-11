@@ -1,20 +1,25 @@
 # USAGE
-# python video.py --video FlightDemo.mp4
-area_min = 10
+# python ValpoVisionMain_rasp.py [-verbose] [-o <outputFileName.avi>] [-fps <fps>]
+#                                [-resX <resolution in the x> -resY <resolution in the y>]
 res = (640,480)
-# import the necessary packages
+fps = 30
+#the boundaries for the HSV values
+(lower,upper) = ([74,71,146],[91,186,243])
+ARDUINO_ADDRESS = 0x8
 
-from webcamvideostream import *
-import cv2
-from time import sleep
-from numpy import array
-from get_line import *
+# import the necessary packages
 from time import perf_counter
-from i2c_messages import *
+from numpy import array
+
+#import opencv
+import cv2
 import cv2.aruco as aruco
 
-def crop(image,x,y,width,height):
-    return image[y:y+height,x:x+width]
+#Local files
+from get_line import *
+from webcamvideostream import *
+from i2c_messages import *
+
 
 #handle exit()
 from signal import signal
@@ -22,26 +27,41 @@ from signal import SIGINT
 def sigint_handler(signum, frame):
     # When everything done, release the capture
     vs.stop()
-    cv2.destroyAllWindows()
 
     print("\nThe processing rate is %s"%((processing_rate/(perf_counter() - time_start))))
     raise SystemExit(0)
 
-signal(SIGINT, sigint_handler)#run commands on control c
+signal(SIGINT, sigint_handler)#run commands on ^C
 
 
-#the boundaries for the HSV values
-(lower,upper) = ([74,71,146],[91,186,243])
+#handle inputs
+import argparse
+parser = argparse.ArgumentParser(description='Line following tracking')
+parser.add_argument('-verbose', action="store_true", dest="verbose", default=False)
+parser.add_argument('-o', action="store", dest="output_name")
+parser.add_argument('-fps', action="store", dest="fps", type=int)
+parser.add_argument('-resX', action="store", dest="resX", type=int)
+parser.add_argument('-resY', action="store", dest="resY", type=int)
+args = parser.parse_args()
+if (args.fps is not None):camera_fps = args.fps
+if ((args.resX is not None)and(args.resY is not None)):res = (args.resX,args.resY)
+
+
+def crop(image,x,y,width,height):
+    return image[y:y+height,x:x+width]
+
+#make sure boundaries are in the right range
 lower = array(lower)
 upper = array(upper)
-vs = WebcamVideoStream(src=0,res=res).start()
+
+vs = WebcamVideoStream(src=0,res=res,fps = fps,output_name = args.output_name).start()
 width,height,_ = vs.specs()
 
 # Where the line is pulled from
 box = (0,400,int(width),50)
 x_box,y_box,width_box,height_box = box
 
-message = i2c_messages(addr = 0x8, # bus address,
+message = i2c_messages(addr = ARDUINO_ADDRESS, # bus address,
                        bus_number = 1,# indicates /dev/ic2-1,
                        suppress_errors = False #optional
                        )
@@ -55,7 +75,9 @@ parameters =  aruco.DetectorParameters_create()
 # keep looping
 while True:
     # grab the current frame and initialize the status text
-    grabbed,frame = vs.read()
+    grabbed,frame,time_ = vs.read(time = True)
+    if not grabbed:
+        print("Could not grab frame. :(")
     frame = frame
     image = frame.copy()
 
@@ -81,14 +103,15 @@ while True:
     
     pos = get_line(image,contours,box)
     pos = int(pos*255/width)
-    print(pos,id_found)
+    if(args.verbose):
+        if (pos==0):turn_str = "Not Found."
+        elif(pos<128):turn_str = "Turning left."
+        else:turn_str = "Turning right."
+        print("Position:" , pos,"Id found:",id_found,turn_str)
+
+    if(args.output_name is not None):
+        vs.write(image,add_time = time_)
+    
     message.write_array([pos,id_found])
     
     processing_rate+=1
-
-vs.stop()
-cv2.destroyAllWindows()
-
-
-processing_rate = (processing_rate/(perf_counter() - time_start))
-print("\nThe processing rate is %s"%(processing_rate))
