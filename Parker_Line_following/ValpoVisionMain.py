@@ -1,16 +1,18 @@
-# USAGE
+
 area_min = 10
 res = (640,480)
-# import the necessary packages
 
-from webcamvideostream import *
-import cv2
-from time import sleep
+# import the necessary packages
+from time import perf_counter
 from numpy import array
-from numpy import int0
-from numpy import argsort
-from get_line import *
+
+#import opencv
+import cv2
 import cv2.aruco as aruco
+
+#Local files
+from get_line import *
+from webcamvideostream import *
 
 def crop(image,x,y,width,height):
     return image[y:y+height,x:x+width]
@@ -40,6 +42,8 @@ while True:
     grabbed,frame = vs.read()
     frame = frame if video_camera else frame[1]
     image = frame.copy()
+    if not grabbed:
+        print("Could not grab frame. :(")
 
     image_croped = crop(frame,x_box,y_box,width_box,height_box)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -60,10 +64,14 @@ while True:
     id_found = 255
     if ids is not None:
         id_found = ids[0][0]
-    print(id_found)
     pos = get_line(image,contours,box)
     pos = int(pos*255/width)
-    #print(pos)
+
+    if(args.verbose):
+        if (pos==0):turn_str = "Not Found."
+        elif(pos<128):turn_str = "Turning left."
+        else:turn_str = "Turning right."
+        print("Position:" , pos,"Id found:",id_found,turn_str)
     
     cv2.imshow("Frame",image)
     cv2.imshow("image_croped",image_croped)
