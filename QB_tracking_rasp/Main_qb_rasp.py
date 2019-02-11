@@ -1,3 +1,8 @@
+# USAGE
+# python Main_qb_rasp.py [-verbose] [-o <outputFileName.avi>] [-fps <fps>]
+#                        [-resX <resolution in the x> -resY <resolution in the y>]
+#                        [-trimHeight <trim height>] [-targetWidth <target_width>]
+#                        [-focalLength <focal_length>]
 id_to_look_for = 0
 secondary_id_to_look_for = 2
 src = 0
@@ -6,58 +11,70 @@ max_queue_size = 5
 res = (2100,2100)
 trim_height = 500
 camera_fps = 30
+target_width = 7.5
+focal_length = 880 #(Pixels_size*distance)/actual_width
+ARDUINO_ADDRESS = 0x8
 
-import cv2
-from numpy import mean
+#import Libraries
 from time import perf_counter
+from numpy import mean
+
+#import opencv
 import cv2.aruco as aruco
+import cv2
+
+#Local files
 from webcamvideostream import *
 from MovingAverage import *
 from i2c_messages import *
 
+
+#handle exit
 from signal import signal
 from signal import SIGINT
 def sigint_handler(signum, frame):
     # When everything done, release the capture
     cap.stop()
-    cv2.destroyAllWindows()
 
     processing_rate = processing_number/(perf_counter() - time_start)
     print("\nThe processing rate is %s"%(processing_rate))
     raise SystemExit(0)
 
-signal(SIGINT, sigint_handler)#run commands on control c
+signal(SIGINT, sigint_handler)#run commands on ^C
+
+
+#handle inputs from command lime
+import argparse
+parser = argparse.ArgumentParser(description='QB tracking')
+parser.add_argument('-verbose', action="store_true", dest="verbose", default=False)
+parser.add_argument('-o', action="store", dest="output_name")
+parser.add_argument('-fps', action="store", dest="fps", type=int)
+parser.add_argument('-resX', action="store", dest="resX", type=int)
+parser.add_argument('-resY', action="store", dest="resY", type=int)
+parser.add_argument('-trimHeight', action="store", dest="trim_height", type=int)
+parser.add_argument('-targetWidth', action="store", dest="target_width", type=float)
+parser.add_argument('-focalLength', action="store", dest="focal_length", type=int)
+args = parser.parse_args()
+if (args.fps is not None):camera_fps = args.fps
+if ((args.resX is not None)and(args.resY is not None)):res = (args.resX,args.resY)
+if (args.trim_height is not None):trim_height = args.trim_height
+if (args.target_width is not None):target_width = args.target_width
+if (args.focal_length is not None):focal_length = args.focal_length
+
 
 #set_up_queue
 moving_average_main_distance = MovingAverageClass(max_queue_size)
 moving_average_main_center = MovingAverageClass(max_queue_size)
 moving_average_side_center = MovingAverageClass(max_queue_size)
 
-## 5.5 in 64.5 pixels at 7ft
-## 4 inch 45.5 pixels at 7ft
-
-
-##items to send
-turn_left = False
-turn_right = False
-
-#2 bits for distance
-#0 is none
-#1 is short
-#2 is medium
-#3 is long
-distance1 = False
-distance2 = False
-
 #3 bytes of tag_number, for tag number
 target_found = 0#1 for target found
 turn_percent = 0
 target_distance = 0
 
-cap = WebcamVideoStream(src= src,res = res)#,fps=camera_fps)
+cap = WebcamVideoStream(src= src,res = res,fps=camera_fps,output_name = args.output_name,output_height = trim_height )
 cap.start()
-target_width = 7.5
-focal_length = 880 #(Pixels_size*distance)/actual_width
+
 def get_distance(pixel_height):
     return (target_width*focal_length)/pixel_height
 def get_robot_positions(corners_of_target):
@@ -73,7 +90,7 @@ def get_robot_positions(corners_of_target):
 time_start = perf_counter()
 processing_number = 0
 
-
+#set the frame heights
 width,height,fps = cap.specs()
 
 goal_position = width/2
@@ -84,27 +101,20 @@ trim_heightBOTTOM = int((height+trim_height)/2)
 if (height <= trim_height):
     trim_heightTOP = int(0)
     trim_heightBOTTOM = int(height)
-
-##Set up queue
-last_center_found = None
-queue_of_distance = []
-
-
-first_time = True
-last_robot_position = None
-on_target = True
+    print("Trim_height is less than height. This might cause errors and it cannot save videos.")
+    args.output_name = False
 
 aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_50)
 parameters =  aruco.DetectorParameters_create()
 
-message = i2c_messages(addr = 0x8, # bus address,
+message = i2c_messages(addr = ARDUINO_ADDRESS, # bus address,
                        bus_number = 1,# indicates /dev/ic2-1,
                        suppress_errors = False #optional
                        )
 
 while(True):
     # Capture frame-by-frame
-    grabbed, frame= cap.read()
+    grabbed, frame,time_= cap.read(time = True)
     if not grabbed:
         print("Camera could not be connected :(")
         break
@@ -115,10 +125,6 @@ while(True):
  
     #print(parameters)
  
-    '''    detectMarkers(...)
-        detectMarkers(image, dictionary[, corners[, ids[, parameters[, rejectedI
-        mgPoints]]]]) -> corners, ids, rejectedImgPoints
-        '''
         #lists of ids and the corners beloning to each id
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
     #print(corners)
@@ -157,11 +163,22 @@ while(True):
         target_distance = int(robot_distance)
     else:
         target_distance = int(0)
-    print(turn_percent, target_distance)
+
+    #save to video
+    if(args.output_name is not None):
+        frame_trim = aruco.drawDetectedMarkers(frame_trim, corners)
+        print(frame_trim.shape ,trim_height)
+        cap.write(frame_trim,add_time = time_)
+
+    #show print outs
+    if(args.verbose):
+        if (turn_percent==0):turn_str = "Not Found."
+        elif(turn_percent<128):turn_str = "Turning right."
+        else:turn_str = "Turning left."
+        print("Position:" ,turn_percent, "Target Distance: ", target_distance,turn_str)
     
     message.write_array([turn_percent,target_distance])
-
-
+    
     processing_number+=1
 
 
