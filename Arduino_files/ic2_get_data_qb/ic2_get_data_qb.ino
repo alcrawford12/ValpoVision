@@ -8,7 +8,7 @@ float maxSpeed = 2.0;
 
 void upadate_speed(int new_turn_percent){
   if (new_turn_percent == 0){
-    speed_float = (float)-.5*maxSpeed;
+    speed_float = 0;
   }else{
     float middle = (float)((turn_percent-127.0)/127.0)*maxSpeed;  
     speed_float = -1*middle;
